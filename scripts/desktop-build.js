@@ -2,6 +2,11 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+// GitHub passes unset secrets as empty strings; electron-builder treats an
+// empty CSC_LINK as the current directory instead of an absent certificate.
+for (const name of ['CSC_LINK','CSC_KEY_PASSWORD','APPLE_ID','APPLE_APP_SPECIFIC_PASSWORD','APPLE_TEAM_ID']) {
+  if (typeof process.env[name] === 'string' && !process.env[name].trim()) delete process.env[name];
+}
 const root = path.resolve(__dirname, '..'), stage = path.join(root, '.desktop-build');
 const pkg = require('../package.json');
 const version = (process.env.GITHUB_REF_NAME || '').replace(/^v/, '');
