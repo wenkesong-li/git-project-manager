@@ -1,0 +1,22 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+test('TypeScript definitions and references resolve imports semantically, not unrelated names', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gitpm-symbols-'));
+  t.after(() => { assert.equal(path.dirname(root), path.resolve(os.tmpdir())); assert.ok(path.basename(root).startsWith('gitpm-symbols-')); fs.rmSync(root, { recursive: true, force: true }); });
+  fs.writeFileSync(path.join(root, 'math.ts'), 'export function add(a: number, b: number) { return a + b; }');
+  fs.writeFileSync(path.join(root, 'other.ts'), 'export function add() { return 0; }');
+  fs.writeFileSync(path.join(root, 'main.ts'), 'import { add } from "./math";\nconst value = add(1, 2);');
+  const query = require('../server/script-intelligence'), project = { id: 1, local_path: root };
+  const definitions = await query(project, { path: 'main.ts', line: 2, column: 15, action: 'definition' });
+  assert.deepEqual(definitions.items.map(item => item.path), ['math.ts']);
+  const refs = await query(project, { path: 'math.ts', line: 1, column: 17, action: 'references' });
+  assert.ok(refs.items.some(item => item.path === 'main.ts' && item.range.start.line === 1));
+  assert.ok(!refs.items.some(item => item.path === 'other.ts'));
+  const highlights = await query(project, { path: 'main.ts', line: 2, column: 15, action: 'documentHighlight' });
+  assert.equal(highlights.items.length, 2);
+  await assert.rejects(query(project, { path: '../outside.ts', action: 'definition' }), /非法/);
+});

@@ -1,0 +1,17 @@
+{
+  "repository": "https://github.com/DavidHDev/react-bits",
+  "inspectedCommit": "d01aa914dcbe76da8b2923ebf872b5c8b1066e4c",
+  "license": "ReactBits-LICENSE.txt",
+  "components": [
+    {
+      "usage": "Adapted for repository previews",
+      "name": "AccordionGallery",
+      "registry": "https://reactbits.dev/r/AccordionGallery-JS-CSS.json"
+    },
+    {
+      "usage": "Page transitions; public component source",
+      "name": "AnimatedContent",
+      "registry": "https://reactbits.dev/r/AnimatedContent-JS-CSS.json"
+    }
+  ]
+}
