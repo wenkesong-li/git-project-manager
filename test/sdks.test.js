@@ -13,7 +13,7 @@ function fixture(t) {
 test('SDK catalog finds multiple JDK and Maven installations and validates releases',async t=>{
   const {root,jdk,maven}=fixture(t),a=jdk('1.8.0_402'),b=jdk('21.0.6'),m=maven('3.9.9');
   const result=await sdk.discover({env:{PATH:''},home:root,roots:[root]});
-  assert.ok(result.jdk.some(item=>item.path===a && item.major===8));assert.ok(result.jdk.some(item=>item.path===b && item.major===21));assert.ok(result.maven.some(item=>item.path===m && item.version==='3.9.9'));
+  assert.ok(result.jdk.some(item=>item.path===fs.realpathSync(a) && item.major===8));assert.ok(result.jdk.some(item=>item.path===fs.realpathSync(b) && item.major===21));assert.ok(result.maven.some(item=>item.path===fs.realpathSync(m) && item.version==='3.9.9'));
   assert.equal(sdk.jdkInfo(root),null);assert.equal(sdk.major('1.8.0_402'),8);
 });
 test('project versions persist independently and Maven runs with the selected project JAVA_HOME',async t=>{

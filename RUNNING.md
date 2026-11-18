@@ -90,9 +90,9 @@ npm run desktop:build -- --mac --arm64 --publish never
 npm run check:secrets
 npm test
 npm run build
-git tag v1.0.4
+git tag v1.0.5
 git push github main
-git push github v1.0.4
+git push github v1.0.5
 ```
 
 标签版本必须与 `package.json` 一致；示例仅表示下一次版本，不要重复发布已存在的标签或覆盖旧安装包。也可通过 Actions 手动运行构建验证，手动运行本身不会创建版本发布。

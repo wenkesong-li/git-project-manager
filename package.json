@@ -1,6 +1,6 @@
 {
   "name": "git-project-manager",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "本地 Git 项目与分支管理工具（支持 Codeup / GitLab / Gitee / GitHub / 通用 Git，令牌加密存本地）",
   "main": "server/index.js",
   "scripts": {

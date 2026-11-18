@@ -19,9 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-Third-party notice: this license applies to original project code only.
-Third-party components and adapted code remain subject to their respective
-licenses, including the React Bits MIT + Commons Clause License Condition
-and the GSAP Standard No Charge License. See third-party/ and the generated
-THIRD-PARTY-NOTICES.txt distributed with the application.
