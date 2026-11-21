@@ -1,3 +1,4 @@
+import { ChevronRight, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -14,7 +15,6 @@ import {
   Modal,
   Popover,
   Select,
-  Spin,
 } from "./ui-kit";
 import {
   IconApps,
@@ -32,13 +32,15 @@ import {
 import AccordionGallery from "./AccordionGallery";
 import AnimatedContent from "./components/AnimatedContent";
 import Project from "./Project";
+import { shortcutMatches } from "./shortcut-config";
+import EditorStatusBar from "./EditorStatusBar";
 import Host from "./Host";
 import Dialogs from "./Dialogs";
 import ThemePicker from "./ThemePicker";
 import Pagination, { usePageSize } from "./Pagination";
 import { applyTheme, readTheme, resolveTheme } from "./themes";
 import { api, confirm, get, post, report, status } from "./api";
-import { ResultSummary, useAction } from "./ui";
+import { LoadingState, ResultSummary, useAction } from "./ui";
 import { apiUrl, searchShortcut } from "./platform";
 import SidebarProjects from "./SidebarProjects";
 import SidebarResize, { initialSidebarWidth } from "./SidebarResize";
@@ -76,6 +78,18 @@ export default function App() {
   const [sideQuery, setSideQuery] = useState("");
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
   const sidebarRef = useRef(null);
+  const [navigationCollapsed, setNavigationCollapsed] = useState(() => localStorage.getItem("gitpm-navigation-collapsed") === "true");
+  const [closedGroups, setClosedGroups] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("gitpm-navigation-groups")) || {}; }
+    catch { return {}; }
+  });
+  useEffect(() => {
+    localStorage.setItem("gitpm-navigation-collapsed", String(navigationCollapsed));
+    localStorage.setItem("gitpm-navigation-groups", JSON.stringify(closedGroups));
+  }, [navigationCollapsed, closedGroups]);
+  function toggleGroup(group) {
+    setClosedGroups(previous => ({ ...previous, [group]: !previous[group] }));
+  }
   const [query, setQuery] = useState(""),
     [filter, setFilter] = useState("all"),
     [sort, setSort] = useState("name");
@@ -194,12 +208,13 @@ export default function App() {
   }, [logs, consoleOpen]);
   useEffect(() => {
     const listener = (event) => {
+      if (event.defaultPrevented || event.isComposing) return;
       const editing =
         /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) ||
         document.activeElement?.isContentEditable;
       if (
         (event.key === "/" && !editing) ||
-        ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k")
+        shortcutMatches(event, "projectSearch", readPreferences().shortcuts)
       ) {
         if (document.querySelector("[data-ui-modal]")) return;
         event.preventDefault();
@@ -354,8 +369,8 @@ export default function App() {
   };
   return (
     <div
-      className="app-shell"
-      style={{ "--sidebar-width": `${sidebarWidth}px` }}
+      className={`app-shell ${navigationCollapsed ? "navigation-collapsed" : ""}`}
+      style={{ "--sidebar-width": `${sidebarWidth}px`, "--navigation-width": navigationCollapsed ? "0px" : `${sidebarWidth}px` }}
     >
       {mobile && (
         <button
@@ -364,7 +379,7 @@ export default function App() {
           onClick={() => setMobile(false)}
         />
       )}
-      <aside ref={sidebarRef} className={`sidebar ${mobile ? "is-open" : ""}`}>
+      <aside id="app-navigation" ref={sidebarRef} className={`sidebar ${mobile ? "is-open" : ""}`}>
         <button className="brand" onClick={() => navigate()}>
           <IconBranch />
           <strong>Git 项目管家</strong>
@@ -379,7 +394,7 @@ export default function App() {
             工作台<span>{projects.length}</span>
           </button>
           <div className="nav-label">
-            远程平台
+            <button className="nav-group-toggle" aria-controls="remote-navigation" aria-expanded={!closedGroups.remote} onClick={() => toggleGroup("remote")}><ChevronRight size={13} />远程平台</button>
             <button
               aria-label="添加平台"
               onClick={() => setDialog({ type: "host" })}
@@ -387,6 +402,7 @@ export default function App() {
               <IconPlus />
             </button>
           </div>
+          <div id="remote-navigation" hidden={!!closedGroups.remote}>
           {hosts.map((h) => (
             <button
               key={h.id}
@@ -409,8 +425,9 @@ export default function App() {
               连接第一个平台
             </button>
           )}
+          </div>
           <div className="nav-label">
-            本地仓库
+            <button className="nav-group-toggle" aria-controls="local-navigation" aria-expanded={!closedGroups.local} onClick={() => toggleGroup("local")}><ChevronRight size={13} />本地仓库</button>
             <button
               aria-label="导入仓库"
               onClick={() => setDialog({ type: "import" })}
@@ -418,6 +435,7 @@ export default function App() {
               <IconPlus />
             </button>
           </div>
+          <div id="local-navigation" hidden={!!closedGroups.local}>
           <SidebarProjects
             projects={sideProjects}
             query={sideQuery}
@@ -428,6 +446,7 @@ export default function App() {
             navigate={navigate}
             disabled={operating}
           />
+          </div>
         </nav>
         <div className="sidebar-bottom">
           {selection.length > 0 && (
@@ -481,14 +500,17 @@ export default function App() {
           </div>
         </div>
       </aside>
-      <SidebarResize
+      {!navigationCollapsed && <SidebarResize
         sidebarRef={sidebarRef}
         width={sidebarWidth}
         onChange={setSidebarWidth}
-      />
+      />}
       <div className="workspace">
         <header className="topbar">
           <div className="breadcrumb">
+            <button className="desktop-navigation-toggle icon-button" aria-controls="app-navigation" aria-expanded={!navigationCollapsed} aria-label={navigationCollapsed ? "展开项目导航" : "收起项目导航"} title={navigationCollapsed ? "展开项目导航" : "收起项目导航"} onClick={() => setNavigationCollapsed(value => !value)}>
+              {navigationCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+            </button>
             <button
               className="mobile-menu icon-button"
               aria-label="展开导航"
@@ -721,10 +743,7 @@ export default function App() {
                     </div>
                   )}
                   {loading ? (
-                    <div className="empty">
-                      <Spin />
-                      <p>正在读取仓库…</p>
-                    </div>
+                    <LoadingState label="正在读取仓库…" />
                   ) : filtered.length ? (
                     <div className="repo-table">
                       <div className="repo-row table-heading">
@@ -867,7 +886,7 @@ export default function App() {
             ) : host ? (
               <Host key={host.id} host={host} ctx={ctx} />
             ) : loading ? (
-              <Spin />
+              <LoadingState label="正在读取平台…" />
             ) : (
               <div className="empty">
                 <h3>平台不存在</h3>
@@ -883,9 +902,10 @@ export default function App() {
               aria-expanded={consoleOpen}
               onClick={() => setConsoleOpen((v) => !v)}
             >
-              <span>{consoleOpen ? "▾" : "▸"}</span> 运行日志{" "}
+              <span>{consoleOpen ? "▾" : "▸"}</span> Git 日志{" "}
               <span className="log-count">{logs.length}</span>
             </button>
+            <EditorStatusBar />
             <span className="console-status">
               <i className={`status-dot ${connected ? "ok" : "warn"}`} />
               {connected ? "实时连接" : "连接中"}

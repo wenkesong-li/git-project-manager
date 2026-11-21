@@ -3,11 +3,12 @@ import {
   ArrowLeft,
   ArrowRight,
   ChevronDown,
+  ChevronUp,
+  ChevronLeft,
   ChevronRight,
   FileText,
   Folder,
-  Image,
-  Link,
+  FolderOpen,
   RotateCw,
   X,
   Search,
@@ -17,10 +18,23 @@ import {
 } from "lucide-react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Button, Input, Spin, Message } from "./ui-kit";
-import { get, post, confirm } from "./api";
+import { api, get, post, confirm } from "./api";
 import { Resource, useAction, useResource } from "./ui";
 import CodeSurface, { copyText } from "./CodeSurface";
+import { readPreferences } from "./preferences";
+import { shortcutMatches } from "./shortcut-config";
+import TreeIcon from "./TreeIcon";
+import SidebarResize from "./SidebarResize";
 import FileOperations from "./FileOperations";
+
+function PathMenu({path, onCopyPath, onReveal}) {
+  return <>
+    <ContextMenu.Item className="file-context-item" onSelect={() => onReveal(path)}><FolderOpen />在文件管理器中查看</ContextMenu.Item>
+    {[[ "absolute", "复制绝对路径" ], [ "relative", "复制相对路径" ], [ "name", "复制名称" ]].map(([kind, label]) => (
+      <ContextMenu.Item key={kind} className="file-context-item" onSelect={() => onCopyPath(path, kind)}><Copy />{label}</ContextMenu.Item>
+    ))}
+  </>;
+}
 
 function FileEntry({
   item,
@@ -28,6 +42,7 @@ function FileEntry({
   onSelect,
   onDelete,
   onCopyPath,
+  onReveal,
   deleteBusy,
   searchResult = false,
 }) {
@@ -41,13 +56,7 @@ function FileEntry({
           disabled={!item.accessible}
           onClick={() => onSelect(searchResult ? { path: item.path, line: item.line || 1, column: item.column || 1 } : item.path)}
         >
-          {item.link ? (
-            <Link />
-          ) : /\.(png|jpe?g|gif|webp)$/i.test(item.name) ? (
-            <Image />
-          ) : (
-            <FileText />
-          )}
+          <TreeIcon name={item.name} link={item.link} />
           <span>
             {item.name}
             {searchResult && (
@@ -69,13 +78,7 @@ function FileEntry({
             <FileText />
             打开文件
           </ContextMenu.Item>
-          <ContextMenu.Item
-            className="file-context-item"
-            onSelect={() => onCopyPath(item.path)}
-          >
-            <Copy />
-            复制相对路径
-          </ContextMenu.Item>
+          <PathMenu path={item.path} onCopyPath={onCopyPath} onReveal={onReveal} />
           <ContextMenu.Separator className="file-context-separator" />
           <ContextMenu.Item
             className="file-context-item danger"
@@ -103,6 +106,7 @@ function Directory({
   treeEpoch = 0,
   onDelete,
   onCopyPath,
+  onReveal,
   deleteBusy,
 }) {
   const [expanded, setExpanded] = useState(
@@ -132,16 +136,23 @@ function Directory({
   return (
     <li className="file-tree-directory">
       {!root && (
-        <button
-          className="file-tree-item folder-item"
-          title={path}
-          aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? <ChevronDown /> : <ChevronRight />}
-          <Folder />
-          <span>{name}</span>
-        </button>
+        <ContextMenu.Root>
+          <ContextMenu.Trigger asChild>
+            <button className="file-tree-item folder-item" title={path} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
+              {expanded ? <ChevronDown /> : <ChevronRight />}
+              <TreeIcon name={name} directory open={expanded} />
+              <span>{name}</span>
+            </button>
+          </ContextMenu.Trigger>
+          <ContextMenu.Portal>
+            <ContextMenu.Content className="file-context-menu">
+              <ContextMenu.Item className="file-context-item" onSelect={() => setExpanded(value => !value)}>
+                <Folder />{expanded ? "折叠目录" : "展开目录"}
+              </ContextMenu.Item>
+              <PathMenu path={path} onCopyPath={onCopyPath} onReveal={onReveal} />
+            </ContextMenu.Content>
+          </ContextMenu.Portal>
+        </ContextMenu.Root>
       )}
       {expanded && (
         <ul>
@@ -171,6 +182,7 @@ function Directory({
                       onSelect,
                       onDelete,
                       onCopyPath,
+                      onReveal,
                       deleteBusy,
                     }}
                     path={item.path}
@@ -185,6 +197,7 @@ function Directory({
                         onSelect,
                         onDelete,
                         onCopyPath,
+                        onReveal,
                         deleteBusy,
                       }}
                     />
@@ -220,12 +233,16 @@ function Directory({
     </li>
   );
 }
-function Preview({ id, path, version, onEdit, location, onNavigate, onPosition }) {
+const draftCache=new Map();
+function Preview({ id, path, version, onEdit, location, onNavigate, onPosition, drafts, setDrafts, onFilesChanged }) {
+  const [saving,saveAction]=useAction();
   const resource = useResource(
     (signal) =>
       get(`/api/local/${id}/file?path=${encodeURIComponent(path)}`, signal),
     [id, path, version],
   );
+  useEffect(()=>{const data=resource.data;if(!data || data.binary)return;setDrafts(previous=>{const draft=previous[path];if(!draft || draft.content!==draft.saved || draft.revision===data.revision)return previous;return {...previous,[path]:{content:data.content,saved:data.content,revision:data.revision}};});},[resource.data]);
+  async function save(data){const draft=drafts[path];if(!draft || draft.content===draft.saved || saving)return;await saveAction(async()=>{const content=draft.content,result=await api('PUT',`/api/local/${id}/file`,{path,content,revision:draft.revision});setDrafts(previous=>({...previous,[path]:{...previous[path],saved:content,revision:result.revision}}));await onFilesChanged?.();Message.success('文件已保存');});}
   const lineCount = (resource.data?.content.match(/\n/g)?.length || 0) + 1;
   return (
     <Resource resource={resource}>
@@ -237,9 +254,7 @@ function Preview({ id, path, version, onEdit, location, onNavigate, onPosition }
               {!data.binary && ` · ${lineCount} 行`}
             </span>
             {!data.binary && (
-              <Button size="mini" onClick={() => onEdit(path)}>
-                编辑文件
-              </Button>
+              <Button size="mini" disabled={saving || !drafts[path] || drafts[path].content===drafts[path].saved} onClick={()=>save(resource.data)}>{saving?'保存中…':'保存文件'}</Button>
             )}
           </div>
           <div className="file-preview-pane" key={path}>
@@ -257,8 +272,10 @@ function Preview({ id, path, version, onEdit, location, onNavigate, onPosition }
               <CodeSurface
                 projectId={id}
                 path={path}
-                value={data.content}
-                readOnly
+                value={drafts[path]?.content ?? data.content}
+                onChange={content=>setDrafts(previous=>({...previous,[path]:{...(previous[path] || {saved:data.content,revision:data.revision}),content}}))}
+                onSave={()=>save(data)}
+                disabled={saving}
                 location={location}
                 onNavigate={onNavigate}
                 onPosition={onPosition}
@@ -270,12 +287,47 @@ function Preview({ id, path, version, onEdit, location, onNavigate, onPosition }
     </Resource>
   );
 }
-export default function FileBrowser({ id, version, onEdit, onFilesChanged }) {
+export default function FileBrowser({ id, projectPath, version, onEdit, onFilesChanged }) {
+  const browserRef = useRef(null), treeRef = useRef(null);
+  const [treeWidth, setTreeWidth] = useState(() => Math.max(180, Math.min(520, Number(localStorage.getItem("gitpm-file-tree-width")) || 232)));
+  const [treeHidden, setTreeHidden] = useState(false);
+  useEffect(() => {
+    function toggleTree(event) {
+      if (event.defaultPrevented || event.repeat || !shortcutMatches(event, "toggleTree", readPreferences().shortcuts) || !browserRef.current?.getClientRects().length || document.querySelector("[data-ui-modal]")) return;
+      event.preventDefault();
+      setTreeHidden(value => !value);
+    }
+    window.addEventListener("keydown", toggleTree);
+    return () => window.removeEventListener("keydown", toggleTree);
+  }, []);
+  function navigateTree(event) {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const button = event.target.closest("button.file-tree-item");
+    if (!button) return;
+    if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+      const rows = Array.from(event.currentTarget.querySelectorAll("button.file-tree-item:not(:disabled)"));
+      const index = event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : rows.indexOf(button) + (event.key === "ArrowUp" ? -1 : 1);
+      rows[index]?.focus();
+    } else if (event.key === "ArrowRight" && button.getAttribute("aria-expanded") === "false") {
+      button.click();
+    } else if (event.key === "ArrowLeft" && button.getAttribute("aria-expanded") === "true") {
+      button.click();
+    } else if (event.key === "ArrowLeft") {
+      button.closest("li")?.parentElement.closest(".file-tree-directory")?.querySelector(":scope > .folder-item")?.focus();
+    } else {
+      return;
+    }
+    event.preventDefault();
+  }
+  const [tabMenu,setTabMenu]=useState(null);
+  useEffect(()=>{const closeMenu=event=>{if(!event.target.closest?.(".editor-tab-menu"))setTabMenu(null);};window.addEventListener("pointerdown",closeMenu);return()=>window.removeEventListener("pointerdown",closeMenu);},[]);
   const [treeDepth,setTreeDepth]=useState(0), [treeEpoch,setTreeEpoch]=useState(0);
-  const [opened, setOpened] = useState([]),
+  const [drafts,setDrafts]=useState(()=>draftCache.get(id) || {});
+  useEffect(()=>{const dirty=Object.fromEntries(Object.entries(drafts).filter(([,draft])=>draft.content!==draft.saved));draftCache.set(id,dirty);const guard=event=>{if(Object.keys(dirty).length){event.preventDefault();event.returnValue="";}};window.addEventListener("beforeunload",guard);return()=>window.removeEventListener("beforeunload",guard);},[drafts,id]);
+  const [opened, setOpened] = useState(()=>Object.keys(draftCache.get(id) || {})),
     [navigation, setNavigation] = useState({ paths: [], positions: [], cursor: -1 });
   const position = useRef(null);
-  const [mode, setMode] = useState('name'), [regex, setRegex] = useState(false), [matchCase, setMatchCase] = useState(false), [skipGenerated, setSkipGenerated] = useState(true);
+  const [mode, setMode] = useState('name-or-path'), [regex, setRegex] = useState(false), [matchCase, setMatchCase] = useState(false), [skipGenerated, setSkipGenerated] = useState(true);
   const [refresh, setRefresh] = useState(0),
     [input, setInput] = useState("");
   const [query, setQuery] = useState(""),
@@ -298,15 +350,21 @@ export default function FileBrowser({ id, version, onEdit, onFilesChanged }) {
         : Promise.resolve({ items: [], truncated: false }),
     [id, debounced, resourceVersion, mode, regex, matchCase, skipGenerated],
   );
-  async function copyPath(path) {
+  async function revealPath(path) {
+    try { await post(`/api/local/${id}/open`, { path }); }
+    catch (error) { Message.error(error.message); }
+  }
+  async function copyPath(path, kind = "relative") {
     try {
-      await copyText(path);
+      const separator = /^[a-z]:|^\\\\/i.test(projectPath) ? "\\" : "/";
+      const absolute = [String(projectPath || "").replace(/[\\/]+$/, ""), path].join(separator).replace(/[\\/]/g, separator);
+      await copyText(kind === "absolute" ? absolute : kind === "name" ? path.split("/").pop() : path);
       await post(`/api/local/${id}/file-operation`, {
         path,
         action: "copy",
-        scope: "path",
+        scope: kind === "relative" ? "path" : kind,
       });
-      Message.success("已复制相对路径");
+      Message.success({ relative: "已复制相对路径", absolute: "已复制绝对路径", name: "已复制名称" }[kind]);
     } catch (error) {
       Message.error(error.message);
     }
@@ -355,7 +413,10 @@ export default function FileBrowser({ id, version, onEdit, onFilesChanged }) {
     if (position.current?.path === active) positions[navigation.cursor] = position.current;
     setNavigation({ ...navigation, positions, cursor });
   }
-  function close(path) {
+  async function closeTabs(paths){if(paths.some(path=>drafts[path] && drafts[path].content!==drafts[path].saved) && !(await confirm('关闭未保存文件','选中的标签页包含未保存修改，关闭将丢弃这些修改，是否继续？')))return;const remaining=opened.filter(path=>!paths.includes(path));setOpened(remaining);setDrafts(previous=>Object.fromEntries(Object.entries(previous).filter(([path])=>!paths.includes(path))));setNavigation(previous=>{const next=previous.paths.filter(path=>!paths.includes(path));return {paths:next,positions:next.map(()=>null),cursor:Math.max(-1,next.lastIndexOf(active)>=0?next.lastIndexOf(active):next.length-1)};});setTabMenu(null);}
+  async function close(path) {
+    if(drafts[path] && drafts[path].content!==drafts[path].saved && !(await confirm("关闭未保存文件","关闭后将丢弃当前文件未保存的修改，是否继续？")))return;
+    setDrafts(previous=>{const next={...previous};delete next[path];return next;});
     const remaining = opened.filter((item) => item !== path);
     setOpened(remaining);
     const current = navigation.paths[navigation.cursor];
@@ -374,7 +435,9 @@ export default function FileBrowser({ id, version, onEdit, onFilesChanged }) {
   }
   return (
     <section
-      className="repository-browser"
+      ref={browserRef}
+      className={`repository-browser ${treeHidden ? "tree-hidden" : ""}`}
+      style={{ "--file-tree-width": `${treeWidth}px` }}
       aria-label="仓库文件浏览器"
       onKeyDown={(event) => {
         if (/INPUT|TEXTAREA|SELECT/.test(event.target.tagName) || event.target.isContentEditable) return;
@@ -384,11 +447,12 @@ export default function FileBrowser({ id, version, onEdit, onFilesChanged }) {
         }
       }}
     >
-      <div className="repository-file-tree">
+      <div className="repository-file-tree" ref={treeRef} hidden={treeHidden}>
         <div className="file-tree-header">
-          <strong>全部文件</strong>
-          <button className="icon-button" aria-label="展开下一层目录" title="展开下一层目录" onClick={()=>{setTreeDepth(value=>Math.min(value+1,12));setTreeEpoch(value=>value+1);}}>＋</button>
-          <button className="icon-button" aria-label="折叠全部目录" title="折叠全部目录" onClick={()=>{setTreeDepth(0);setTreeEpoch(value=>value+1);}}>−</button>
+          <strong>文件</strong>
+          <button className="icon-button" aria-label="收起文件树" title="收起文件树" onClick={() => setTreeHidden(true)}><ChevronLeft /></button>
+          <button className="icon-button" aria-label="展开下一层目录" title="展开下一层目录" onClick={()=>{setTreeDepth(value=>Math.min(value+1,12));setTreeEpoch(value=>value+1);}}><ChevronDown size={16} /></button>
+          <button className="icon-button" aria-label="折叠全部目录" title="折叠全部目录" onClick={()=>{setTreeDepth(0);setTreeEpoch(value=>value+1);}}><ChevronUp size={16} /></button>
           <div className="button-group">
             <button
               className="icon-button"
@@ -410,14 +474,15 @@ export default function FileBrowser({ id, version, onEdit, onFilesChanged }) {
         </div>
         <div className="file-search-input">
           <div className="file-search-options">
-            <select aria-label="文件搜索范围" value={mode} onChange={event => setMode(event.target.value)}><option value="name">文件名</option><option value="path">完整路径</option><option value="content">文件内容</option></select>
+            <button type="button" className="file-search-content-toggle" aria-pressed={mode === 'content'}
+              title="切换文件内容搜索" onClick={() => setMode(value => value === 'content' ? 'name-or-path' : 'content')}>内容</button>
             <button type="button" aria-label="区分大小写" aria-pressed={matchCase} title="区分大小写" onClick={() => setMatchCase(!matchCase)}>Aa</button>
             <button type="button" aria-label="正则搜索" aria-pressed={regex} title="使用正则表达式" onClick={() => setRegex(!regex)}>.*</button>
           </div>
           <Input
             aria-label="搜索仓库文件"
             prefix={<Search size={13} />}
-            placeholder={mode === 'content' ? '搜索文件内容' : mode === 'path' ? '搜索完整路径' : '搜索文件名'}
+            placeholder={mode === 'content' ? '搜索文件内容' : '搜索文件名或路径'}
             value={query}
             onChange={setQuery}
             allowClear
@@ -427,32 +492,9 @@ export default function FileBrowser({ id, version, onEdit, onFilesChanged }) {
         </div>
         <nav
           aria-label="仓库目录与文件"
+          onKeyDown={navigateTree}
           className="file-tree"
-          onKeyDown={(event) => {
-            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key))
-              return;
-            const buttons = [
-              ...event.currentTarget.querySelectorAll(
-                "button.file-tree-item:not(:disabled)",
-              ),
-            ];
-            const index = buttons.indexOf(document.activeElement);
-            if (index < 0) return;
-            event.preventDefault();
-            const next =
-              event.key === "Home"
-                ? 0
-                : event.key === "End"
-                  ? buttons.length - 1
-                  : Math.max(
-                      0,
-                      Math.min(
-                        buttons.length - 1,
-                        index + (event.key === "ArrowDown" ? 1 : -1),
-                      ),
-                    );
-            buttons[next]?.focus();
-          }}
+
         >
           {query.trim() ? (
             <Resource
@@ -477,6 +519,7 @@ export default function FileBrowser({ id, version, onEdit, onFilesChanged }) {
                           onSelect={open}
                           onDelete={remove}
                           onCopyPath={copyPath}
+                          onReveal={revealPath}
                           deleteBusy={deleteBusy}
                           searchResult
                         />
@@ -508,6 +551,7 @@ export default function FileBrowser({ id, version, onEdit, onFilesChanged }) {
                 root
                 onDelete={remove}
                 onCopyPath={copyPath}
+                          onReveal={revealPath}
                 deleteBusy={deleteBusy}
               />
             </ul>
@@ -515,6 +559,10 @@ export default function FileBrowser({ id, version, onEdit, onFilesChanged }) {
         </nav>
         <p className="file-tree-note">包含未修改和被 Git 忽略的文件</p>
       </div>
+      {treeHidden ? (
+        <button className="file-tree-reopen" title="展开文件树" aria-label="展开文件树" onClick={() => setTreeHidden(false)}><Folder size={15} /> 文件</button>
+      ) : <SidebarResize sidebarRef={treeRef} containerRef={browserRef} width={treeWidth}
+        onChange={setTreeWidth} label="调整文件树宽度" storageKey="gitpm-file-tree-width" />}
       <div className="repository-file-viewer">
         <div className="file-navigation">
           <button
@@ -542,18 +590,21 @@ export default function FileBrowser({ id, version, onEdit, onFilesChanged }) {
           />
         </div>
         {opened.length > 0 && (
-          <div className="file-open-tabs" aria-label="已打开文件">
+          <div className="file-open-tabs" aria-label="已打开文件" role="tablist">
             {opened.map((path) => (
               <div
                 key={path}
                 className={`file-open-tab ${active === path ? "active" : ""}`}
+                onAuxClick={event=>{if(event.button===1){event.preventDefault();close(path);}}}
+                onContextMenu={event=>{event.preventDefault();setTabMenu({path,x:event.clientX,y:event.clientY});}}
               >
                 <button
                   title={path}
+                  role="tab" aria-selected={active===path}
                   aria-current={active === path ? "page" : undefined}
                   onClick={() => open(path)}
                 >
-                  {path.split("/").pop()}
+                  <TreeIcon name={path.split("/").pop()} /> {path.split("/").pop()}{drafts[path] && drafts[path].content!==drafts[path].saved ? " ●" : ""}
                 </button>
                 <button
                   aria-label={`关闭文件 ${path}`}
@@ -565,10 +616,14 @@ export default function FileBrowser({ id, version, onEdit, onFilesChanged }) {
             ))}
           </div>
         )}
+        {tabMenu && <div className="editor-context-menu editor-tab-menu" role="menu" aria-label="标签页操作" style={{position:"fixed",left:tabMenu.x,top:tabMenu.y}}><button role="menuitem" onClick={()=>{setTabMenu(null);close(tabMenu.path);}}>关闭当前标签</button><button role="menuitem" onClick={()=>closeTabs(opened.filter(path=>path!==tabMenu.path))}>关闭其他标签</button><button role="menuitem" onClick={()=>closeTabs(opened)}>关闭全部标签</button></div>}
         {active ? (
           <Preview
             key={active}
             id={id}
+            drafts={drafts}
+            setDrafts={setDrafts}
+            onFilesChanged={onFilesChanged}
             path={active}
             version={resourceVersion}
             onEdit={onEdit}

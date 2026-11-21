@@ -2,6 +2,7 @@
 'use strict';
 
 const { spawn } = require('child_process');
+const path = require('path');
 
 function launch(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -35,4 +36,10 @@ function openTerminal(directory) {
   return Promise.reject(new Error('当前系统暂不支持打开终端，请手动打开'));
 }
 
-module.exports = { openPath, openUrl, openTerminal };
+function revealFile(file) {
+  if (process.platform === 'win32') return launch('explorer.exe', ['/select,', file]);
+  if (process.platform === 'darwin') return launch('open', ['-R', file]);
+  return openPath(path.dirname(file));
+}
+
+module.exports = { openPath, openUrl, openTerminal, revealFile };

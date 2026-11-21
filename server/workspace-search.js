@@ -44,7 +44,7 @@ function globs(skipGenerated) {
 }
 async function search(root, options, signal) {
   const query = String(options.q || '').trim();
-  const mode = ['name', 'path', 'content'].includes(options.mode) ? options.mode : 'name';
+  const mode = ['name', 'path', 'name-or-path', 'content'].includes(options.mode) ? options.mode : 'name';
   if (!query) return { items: [], truncated: false, mode };
   if (query.length > 500) throw new Error('搜索条件最长 500 个字符');
   const regex = options.regex === 'true', matchCase = options.case === 'true';
@@ -70,7 +70,10 @@ async function search(root, options, signal) {
   } else {
     result = await runRg(root, ['--files', '--null', ...common], relative => {
       relative = relative.replace(/\\/g, '/');
-      if (match(mode === 'name' ? path.posix.basename(relative) : relative)) items.push({ name: path.posix.basename(relative), path: relative, type: 'file', accessible: true });
+      const name = path.posix.basename(relative);
+      if (match(mode === 'name' ? name : relative) || (mode === 'name-or-path' && match(name))) {
+        items.push({ name, path: relative, type: 'file', accessible: true });
+      }
       return items.length < 300;
     }, signal, true);
   }

@@ -45,7 +45,11 @@ export const Button = forwardRef(function Button(
       aria-busy={loading || undefined}
       className={`ui-btn ${type === "primary" ? "ui-btn-primary" : ""} ${status === "danger" ? "ui-btn-danger" : ""} ${size ? `ui-btn-${size}` : ""} ${className}`}
     >
-      {loading ? <LoaderCircle className="ui-spinner" size={14} /> : icon}
+      {(icon || loading !== undefined) && (
+        <span className="ui-btn-icon-slot" aria-hidden="true">
+          {loading ? <LoaderCircle className="ui-spinner" size={14} /> : icon}
+        </span>
+      )}
       {children}
     </button>
   );

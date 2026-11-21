@@ -1,5 +1,7 @@
 # 运行与发布文档
 
+[项目说明](README.md) · [English overview](README.en.md) · [功能演示](docs/media/gitpm-intro.mp4) · [性能与体积](docs/PERFORMANCE.md)
+
 ## 一、环境要求
 
 - 源码运行 / 构建推荐 Node.js 24 LTS 和 npm。Node.js 24 使用内置 SQLite，旧版本可能需要编译可选的 `better-sqlite3` 原生依赖。
@@ -52,9 +54,16 @@ PORT=8000 npm start
 4. 根目录含 `pom.xml` 时识别为 Maven 项目，“编译”执行 `mvn --batch-mode compile`；Node.js 项目提供 `build` 脚本时执行 `npm run build`。
 5. Maven 配置 `spring-boot-maven-plugin` 或 `exec-maven-plugin` 后可快捷运行；Node.js 依次选择 `dev`、`start`、`serve` 脚本。其他任务在“运行配置”中选择。
 6. 底部启动日志实时滚动，手动向上滚动后暂停自动跟随。可停止任务、复制或收起日志。服务启动失败时查看退出码及日志中的具体错误。
-7. 编译结束会刷新文件树，展示 `target` 等生成目录。文件树“＋”展开下一层，“−”折叠目录；大目录按需加载，超过单次条数时使用“加载更多”。
+7. 编译结束会刷新文件树，展示 `target` 等生成目录。文件树向下箭头展开下一层，向上箭头折叠全部目录。大目录按需加载，超过单次条数时使用“加载更多”。
 
 运行使用磁盘上已保存的文件，请先保存编辑内容。应用不会自动安装项目依赖；按项目要求执行可信的依赖安装步骤。运行任务有并发限制和 30 分钟超时，长期服务超时后会停止。
+
+### 编辑器主题、背景图与贮藏历史
+
+1. 打开「设置 → 样式与编辑器 → 代码配色」，选择随界面明暗、白底彩色、深底彩色或灰度。使用取色器可逐项设置关键字、字符串、注释等颜色。
+2. 点「导入编辑器主题」读取 OpenIDEA 主题或配色 JSON、VS Code 常用颜色字段或 IntelliJ IDEA `.icls`。只应用可识别的编辑器色值，主题插件、图标、外部引用和脚本不参与导入。
+3. 在同页上传 12 MB 以内的 JPG、PNG 或 WebP 图片。在预览中调整四边裁剪滑杆，或向左、向右旋转 90°。点击「应用背景」后可选择显示在左侧、中间（含代码区）或两边。两边可共享一张连续的画面，也可分别显示同一张图。调好图片强度后保存设置。配置备份会携带已保存的背景图片。
+4. 打开项目的「贮藏」页。工作区有变更时才显示新建表单。历史可按说明、分支或序号过滤，点开记录查看文件及恢复操作。焦点在贮藏区时，`Ctrl+F` 或 `⌘F` 可直接进入搜索框。
 
 ## 四、历史数据与备份
 
@@ -90,9 +99,8 @@ npm run desktop:build -- --mac --arm64 --publish never
 npm run check:secrets
 npm test
 npm run build
-git tag v1.0.6
-git push github main
-git push github v1.0.6
+git tag -a v2.0.0 -m "2.0.0"
+git push --atomic github HEAD:main refs/tags/v2.0.0
 ```
 
 标签版本必须与 `package.json` 一致；示例仅表示下一次版本，不要重复发布已存在的标签或覆盖旧安装包。也可通过 Actions 手动运行构建验证，手动运行本身不会创建版本发布。

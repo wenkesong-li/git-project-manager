@@ -1,6 +1,10 @@
 "use strict";
+const fs=require('fs'),path=require('path');
+const output=path.resolve(__dirname,'../public/assets');
+if(path.dirname(output)!==path.resolve(__dirname,'../public'))throw Error('构建目录无效');
+fs.rmSync(output,{recursive:true,force:true});
 const result = require("esbuild").buildSync({
-  entryPoints: { app: 'src/main.jsx', ...Object.fromEntries(Object.entries({ editor: 'editor/editor.worker.js', ts: 'language/typescript/ts.worker.js', json: 'language/json/json.worker.js', css: 'language/css/css.worker.js', html: 'language/html/html.worker.js' }).map(([name, file]) => [`worker-${name}`, `node_modules/monaco-editor/esm/vs/${file}`])) },
+  entryPoints: { app: 'src/main.jsx' },
   bundle: true,
   minify: true,
   outdir: 'public/assets',

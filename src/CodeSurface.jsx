@@ -106,8 +106,9 @@ export default function CodeSurface({
         </span>
         <div className="button-group">
           {info.mode === 'java' && <Button size="mini" disabled={busy || javaStatus.loading || javaStatus.data?.installed} title={javaStatus.error || '基础导航使用本地 JDK 17+；Eclipse JDT 深度工程分析需要 JDK 25+ 和首次下载'} onClick={() => run(async () => { setJavaInstalling(true); try { await post(`/api/local/${projectId}/java-install`); javaStatus.reload(); Message.success('Java 深度分析已启用，首次跳转需要建立工程索引'); } finally { setJavaInstalling(false); } })}>{javaStatus.data?.installed ? 'JDT 深度分析已启用' : javaInstalling ? '正在下载 Java 服务…' : 'JDK 导航 · 启用深度分析'}</Button>}
-          <Button size="mini" title="F12 / Ctrl+点击（macOS：⌘+点击）" onClick={() => editor.current?.action('editor.action.revealDefinition')}>转到定义</Button>
-          <Button size="mini" title="Shift+F12" disabled={busy} onClick={findReferences}>查找引用</Button>
+          <Button size="mini" disabled={disabled} onClick={()=>editor.current?.action("find")}>查找 / 替换</Button>
+          <Button size="mini" title="Ctrl+点击（macOS：⌘+点击）" onClick={() => editor.current?.action('editor.action.revealDefinition')}>转到定义</Button>
+          <Button size="mini" disabled={busy} onClick={findReferences}>查找引用</Button>
           <Button
             size="mini"
             icon={<Copy size={12} />}
@@ -129,7 +130,7 @@ export default function CodeSurface({
               size="mini"
               icon={<Braces size={12} />}
               disabled={busy || disabled || !info.canFormat}
-              title="格式化编辑区（Ctrl+Alt+L / ⌘⌥L），保存后才写入文件"
+              title="格式化编辑区，保存后才写入文件"
               onClick={format}
             >
               格式化

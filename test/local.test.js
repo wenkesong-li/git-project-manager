@@ -45,14 +45,30 @@ function fixture(t) {
   );
   return {
     root,
-    call: (method, url, body = {}, query = {}) =>
+    call: (method, url, body = {}, query = {}, params = {}) =>
       routes.get(`${method} ${url}`)({
-        params: { id: 1 },
+        params: { id: 1, ...params },
         body,
         query: new URLSearchParams(query),
       }),
   };
 }
+
+test("clean worktrees skip stash creation and history exposes tracked and untracked paths", async t => {
+  const { root, call } = fixture(t);
+  const tracked = path.join(root, "tracked.txt");
+  fs.writeFileSync(tracked, "original");
+  await git.gitOk(["add", "tracked.txt"], { cwd: root });
+  await git.gitOk(["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "initial"], { cwd: root });
+  const stash = "/api/local/:id/stash";
+  assert.equal((await call("POST", stash, { action: "push" })).skipped, true);
+  fs.writeFileSync(tracked, "updated");
+  fs.writeFileSync(path.join(root, "新 文件.txt"), "untracked");
+  await call("POST", stash, { action: "push", message: "fixture" });
+  assert.equal((await call("GET", "/api/local/:id/stashes")).items.length, 1);
+  const detail = await call("GET", "/api/local/:id/stashes/:index/files", {}, {}, { index: "0" });
+  assert.deepEqual(new Set(detail.files), new Set(["tracked.txt", "新 文件.txt"]));
+});
 
 test("new repositories support nested files, staged diff, unstage and empty history", async (t) => {
   const { root, call } = fixture(t);

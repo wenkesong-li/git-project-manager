@@ -37,7 +37,7 @@ function validate(payload) {
   const ids = new Set(payload.hosts.map(host => String(host.id)));
   if (ids.size !== payload.hosts.length) throw new Error('平台标识重复');
   for (const project of payload.projects) if (typeof project.name !== 'string' || !project.name.trim() || typeof project.local_path !== 'string' || !(path.win32.isAbsolute(project.local_path) || path.posix.isAbsolute(project.local_path)) || project.local_path.length > 4096 || project.host_id != null && !ids.has(String(project.host_id))) throw new Error('项目配置无效，请检查本地路径及平台关联');
-  for (const key of settingKeys) if (payload.settings?.[key] != null && (typeof payload.settings[key] !== 'string' || payload.settings[key].length > 65536)) throw new Error('设置内容无效');
+  for (const key of settingKeys) if (payload.settings?.[key] != null && (typeof payload.settings[key] !== 'string' || payload.settings[key].length > (key === 'ui_preferences' ? 520000 : 65536))) throw new Error('设置内容无效');
   payload.settings = Object.fromEntries(settingKeys.filter(key => payload.settings?.[key] != null).map(key => [key, payload.settings[key]]));
   if (payload.settings.ui_preferences) { try { payload.settings.ui_preferences = JSON.stringify(require('./preferences')(JSON.parse(payload.settings.ui_preferences))); } catch { throw new Error('偏好设置格式无效'); } }
   if (payload.projectEnvironments != null && (!Array.isArray(payload.projectEnvironments) || payload.projectEnvironments.length > 10000)) throw new Error('项目环境格式无效');

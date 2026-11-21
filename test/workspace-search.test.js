@@ -20,6 +20,10 @@ test('workspace search supports name, path, content, regex and case modes with U
   assert.deepEqual((await search.search(root, { q: 'demo', mode: 'name' })).items.map(x => x.path), ['src/Demo.ts']);
   assert.equal((await search.search(root, { q: 'src/Demo', mode: 'name' })).items.length, 0);
   assert.equal((await search.search(root, { q: 'src/Demo', mode: 'path' })).items.length, 1);
+  for (const q of ['^Demo', '^src/Demo', 'Demo']) {
+    const result = await search.search(root, { q, mode: 'name-or-path', regex: 'true' });
+    assert.deepEqual(result.items.map(item => item.path), ['src/Demo.ts']);
+  }
   assert.equal((await search.search(root, { q: 'demo', mode: 'name', case: 'true' })).items.length, 0);
   const result = await search.search(root, { q: 'H[a-z]+', mode: 'content', regex: 'true' });
   assert.equal(result.items.length, 1);

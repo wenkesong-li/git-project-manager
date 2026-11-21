@@ -6,7 +6,7 @@ const path = require('path');
 const git = require('../git');
 const { parseStatus } = require('../status');
 const repositoryFiles = require('../files');
-const { openPath, openTerminal } = require('../open');
+const { openPath, openTerminal, revealFile } = require('../open');
 const { resolveAuth } = require('../auth');
 const { stripAuth, urlKey, hostMatchesUrl } = require('../urlutil');
 
@@ -309,10 +309,12 @@ module.exports = function registerLocalRoutes(add, ctx) {
   });
 
   /** 在系统文件管理器中打开（Windows 资源管理器 / macOS Finder） */
-  add('POST', '/api/local/:id/open', async ({ params }) => {
+  add('POST', '/api/local/:id/open', async ({ params, body }) => {
     const p = getProjectOr404(dbm, params.id);
     if (!fs.existsSync(p.local_path)) throw new Error('本地目录不存在');
-    await openPath(p.local_path);
+    const target = repositoryFiles.resolveEntry(p.local_path, body?.path, true);
+    if (fs.statSync(target).isDirectory()) await openPath(target);
+    else await revealFile(target);
     return { ok: true };
   });
 
@@ -609,7 +611,7 @@ add('POST','/api/local/:id/file-operation',async({params,body})=>{
   const p=getProjectOr404(dbm,params.id),relative=String(body.path||'');
   repositoryFiles.resolveEntry(p.local_path,relative);
   if(body.action!=='copy')throw new Error('不支持的文件操作');
-  fileOps.record(p,relative,'copy',body.scope==='selection'?'复制选中内容':body.scope==='path'?'复制相对路径':'复制全部内容');return {ok:true};
+  fileOps.record(p,relative,'copy',body.scope==='selection'?'复制选中内容':body.scope==='path'?'复制相对路径':body.scope==='absolute'?'复制绝对路径':body.scope==='name'?'复制名称':'复制全部内容');return {ok:true};
 });
 add('POST','/api/local/:id/delete-file',async({params,body})=>fileOps.remove(getProjectOr404(dbm,params.id),String(body.path||'')));
 add('POST','/api/local/:id/restore-file',async({params,body})=>fileOps.restore(getProjectOr404(dbm,params.id),Number(body.operationId)));
@@ -756,11 +758,19 @@ add('GET', '/api/local/:id/stashes', async ({ params }) => {
   const p = getProjectOr404(dbm, params.id);
   if (!fs.existsSync(p.local_path)) throw new Error('本地目录不存在');
   const r = await git.runGit(['stash', 'list'], { cwd: p.local_path });
+  if (r.code !== 0) throw new Error('无法读取贮藏历史');
   const items = r.stdout.split('\n').filter(Boolean).map((line) => {
     const m = line.match(/^stash@\{(\d+)\}:\s*(.*)$/);
     return m ? { index: Number(m[1]), label: m[2] } : { index: -1, label: line };
   });
   return { items };
+});
+
+add('GET', '/api/local/:id/stashes/:index/files', async ({ params }) => {
+  const p = getProjectOr404(dbm, params.id);
+  if (!/^\d+$/.test(params.index)) throw new Error('非法贮藏序号');
+  const result = await git.gitOk(['stash', 'show', '--include-untracked', '--name-only', '-z', `stash@{${params.index}}`], { cwd: p.local_path });
+  return { files: result.stdout.split('\0').filter(Boolean) };
 });
 
 /** 贮藏操作：push(新建，含未跟踪)/apply/pop/drop */
@@ -770,6 +780,7 @@ add('POST', '/api/local/:id/stash', async ({ params, body }) => {
   const { action } = body || {};
   let r;
   if (action === 'push') {
+    if (await git.dirtyCount(p.local_path) === 0) return { ok: true, skipped: true };
     r = await git.runGit(['stash', 'push', '-u', '-m', String(body.message || `gpm-${Date.now()}`).slice(0, 100)], { cwd: p.local_path });
   } else if (['apply', 'pop', 'drop'].includes(action)) {
     const idx = Number(body.index);

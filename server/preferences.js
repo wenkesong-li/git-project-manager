@@ -13,7 +13,14 @@ module.exports = function sanitize(input = {}) {
     if (Number.isFinite(Number(input.editor.fontSize)) && Number(input.editor.fontSize) >= 10 && Number(input.editor.fontSize) <= 24) editor.fontSize = Number(input.editor.fontSize);
     if (typeof input.editor.wordWrap === 'boolean') editor.wordWrap = input.editor.wordWrap;
     if (typeof input.editor.minimap === 'boolean') editor.minimap = input.editor.minimap;
+    if (typeof input.editor.lineNumbers === 'boolean') editor.lineNumbers = input.editor.lineNumbers;
+    if (['auto', 'daylight', 'night', 'gray', 'custom'].includes(input.editor.palette)) editor.palette = input.editor.palette;
+    if (input.editor.colors && typeof input.editor.colors === 'object') {
+      editor.colors = require('./editor-palette').sanitizePalette(input.editor.colors);
+    }
     result.editor = editor;
   }
+  if (input.shortcuts && typeof input.shortcuts === 'object' && !Array.isArray(input.shortcuts)) result.shortcuts = require('./keybindings').sanitize(input.shortcuts);
+  if (Object.hasOwn(input, 'wallpaper')) result.wallpaper = require('./wallpaper')(input.wallpaper);
   return result;
 };

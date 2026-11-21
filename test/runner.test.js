@@ -26,6 +26,24 @@ test('configured Node runs a local file, records output and handles exit failure
   result = await finish(runner, project); assert.equal(result.state, 'failed'); assert.equal(result.exitCode, 7);
   assert.throws(() => runner.start(project, { action: 'node', path: '../outside.js' }), /非法/);
 });
+test('runner preserves Chinese text split across stdout and stderr chunks', async t => {
+  const { repo, runner, project } = fixture(t);
+  fs.writeFileSync(path.join(repo, 'log.js'), `
+    const out = Buffer.from('编译完成'), err = Buffer.from('找不到符号');
+    process.stdout.write(out.subarray(0, 1));
+    process.stderr.write(err.subarray(0, 2));
+    setTimeout(() => {
+      process.stdout.write(out.subarray(1));
+      process.stderr.write(err.subarray(2));
+    }, 100);
+  `);
+  runner.start(project, { action: 'node', path: 'log.js' });
+  const result = await finish(runner, project);
+  assert.equal(result.state, 'success');
+  assert.match(result.output, /编译完成/);
+  assert.match(result.output, /找不到符号/);
+  assert.doesNotMatch(result.output, /�/);
+});
 test('runner rejects concurrent tasks and can stop a running process', async t => {
   const { repo, runner, project } = fixture(t);
   fs.writeFileSync(path.join(repo, 'wait.js'), 'setInterval(()=>{},1000)');

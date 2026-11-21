@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Button, Input, Message, Modal, Spin } from "./ui-kit";
+import { Alert, Button, Input, Message, Modal } from "./ui-kit";
 import { get, report } from "./api";
 
 export function useResource(loader, deps = []) {
@@ -40,14 +40,17 @@ export function useAction() {
   }
   return [busy, run];
 }
+export function LoadingState({ label = "正在读取…" }) {
+  return (
+    <div className="resource-loading" role="status" aria-busy="true">
+      <div className="resource-loading-lines" aria-hidden="true"><i /><i /><i /></div>
+      <span>{label}</span>
+    </div>
+  );
+}
+
 export function Resource({ resource, children, empty = "暂无内容" }) {
-  if (resource.loading && resource.data === null)
-    return (
-      <div className="empty">
-        <Spin />
-        <p>正在读取…</p>
-      </div>
-    );
+  if (resource.loading && resource.data === null) return <LoadingState />;
   if (resource.error)
     return (
       <Alert
@@ -60,7 +63,10 @@ export function Resource({ resource, children, empty = "暂无内容" }) {
         }
       />
     );
-  return children(resource.data) || <div className="empty">{empty}</div>;
+  return <>
+    {resource.loading && <div className="resource-refresh" role="status" aria-label="正在刷新" />}
+    {children(resource.data) || <div className="empty">{empty}</div>}
+  </>;
 }
 export function Field({ label, hint, children }) {
   return (

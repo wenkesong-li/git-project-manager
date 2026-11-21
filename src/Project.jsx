@@ -138,7 +138,7 @@ export default function Project({ id, ctx }) {
               content="本地目录不存在。检查仓库存放路径，或移除登记后重新导入。"
             />
           )}
-          {p.exists && <ProjectRunDock id={id} version={version} onRefresh={()=>setVersion(value=>value+1)} onConfigure={()=>setTab('run')} />}
+          <ProjectRunDock key={id} id={id} enabled={p.exists} version={version} onRefresh={()=>setVersion(value=>value+1)} onConfigure={()=>setTab('run')}>
           <Tabs
             activeTab={tab}
             onChange={setTab}
@@ -149,6 +149,7 @@ export default function Project({ id, ctx }) {
             <Tabs.TabPane key="files" title="文件浏览" keepAlive>
               {p.exists ? (
                 <FileBrowser
+                  projectPath={p.local_path}
                   id={id}
                   version={`${version}/${ctx.revision}`}
                   onFilesChanged={changed}
@@ -184,7 +185,7 @@ export default function Project({ id, ctx }) {
               <History id={id} version={`${version}/${ctx.revision}`} />
             </Tabs.TabPane>
             <Tabs.TabPane key="stash" title="贮藏">
-              <Stashes id={id} changed={changed} />
+              {p.exists ? <Stashes id={id} changed={changed} dirty={p.dirty} version={`${version}/${ctx.revision}`} /> : <div className="empty">本地目录不存在，无法查看贮藏。</div>}
             </Tabs.TabPane>
             <Tabs.TabPane key="info" title="仓库信息">
               <div className="info-list">
@@ -223,6 +224,7 @@ export default function Project({ id, ctx }) {
               </Button>
             </Tabs.TabPane>
           </Tabs>
+          </ProjectRunDock>
           {dialog?.type === "file" && (
             <FileEditor
               id={id}
@@ -926,11 +928,18 @@ function CommitFiles({ id, sha }) {
     </div>
   );
 }
-function Stashes({ id, changed }) {
+function Stashes({ id, changed, dirty, version }) {
   const resource = useResource(
     (signal) => get(`/api/local/${id}/stashes`, signal),
-    [id],
+    [id, version],
   );
+  const searchRef = useRef(null);
+  const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState(new Set());
+  const items = resource.data?.items || [];
+  const term = query.trim().toLowerCase();
+  const visible = items.filter(item => `stash@{${item.index}} ${item.label}`.toLowerCase().includes(term));
+  const entryKey = item => `${item.index}:${item.label}`;
   const [message, setMessage] = useState(""),
     [busy, run] = useAction();
   async function act(action, index) {
@@ -954,56 +963,76 @@ function Stashes({ id, changed }) {
     )
       return;
     run(async () => {
-      await post(`/api/local/${id}/stash`, { action, index, message });
+      const result = await post(`/api/local/${id}/stash`, { action, index, message });
+      setExpanded(new Set());
       setMessage("");
       resource.reload();
       await changed();
-      Message.success(`${titles[action]}完成`);
+      if (result.skipped) Message.info("工作区没有可贮藏的修改");
+      else Message.success(`${titles[action]}完成`);
     });
   }
   return (
-    <>
-      <div className="section-toolbar">
-        <Input
-          value={message}
-          onChange={setMessage}
-          placeholder="贮藏说明（可选）"
-          aria-label="贮藏说明"
-          style={{ width: 300 }}
-        />
-        <Button type="primary" loading={busy} onClick={() => act("push")}>
-          贮藏当前修改
-        </Button>
+    <section className="stash-workspace" aria-label="项目贮藏" onKeyDown={event => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "f") return;
+      event.preventDefault();
+      searchRef.current?.focus();
+    }}>
+      {dirty > 0 ? (
+        <div className="section-toolbar">
+          <Input value={message} onChange={setMessage} placeholder="贮藏说明（可选）" aria-label="贮藏说明" />
+          <Button type="primary" loading={busy} onClick={() => act("push")}>贮藏当前修改</Button>
+        </div>
+      ) : <p className="section-note">{dirty === 0 ? "工作区没有需要贮藏的修改。" : "暂时无法确认工作区状态，请刷新后重试。"}</p>}
+      <div className="section-toolbar stash-history-toolbar">
+        <strong>贮藏历史</strong>
+        <Input ref={searchRef} value={query} onChange={setQuery} allowClear
+          placeholder="搜索说明、分支或序号" aria-label="搜索贮藏历史" />
+        <Button size="small" disabled={!visible.length} onClick={() => setExpanded(new Set(visible.map(entryKey)))}>展开搜索结果</Button>
+        <Button size="small" disabled={!expanded.size} onClick={() => setExpanded(new Set())}>全部折叠</Button>
+        <Button size="small" disabled={busy} onClick={() => run(async () => { resource.reload(); await changed(); })}>刷新</Button>
       </div>
-      <p className="section-note">包含未跟踪文件。贮藏后可在这里恢复。</p>
       <Resource resource={resource}>
-        {(data) =>
-          data.items.length ? (
-            <div className="plain-list">
-              {data.items.map((item) => (
-                <div key={item.index}>
-                  <code>{item.label}</code>
+        {() => visible.length ? (
+          <div className="stash-history-list">
+            {visible.map(item => {
+              const key = entryKey(item);
+              const open = expanded.has(key);
+              return <article key={key} className="stash-history-item">
+                <button className="stash-history-summary" type="button" aria-expanded={open} onClick={() => setExpanded(previous => {
+                  const next = new Set(previous);
+                  if (next.has(key)) next.delete(key);
+                  else next.add(key);
+                  return next;
+                })}>
+                  <span aria-hidden="true">{open ? "▾" : "▸"}</span>
+                  <code>{`stash@{${item.index}}`}</code> <span>{item.label}</span>
+                </button>
+                {open && <div className="stash-history-detail">
+                  <StashFiles id={id} index={item.index} version={version} />
                   <div className="button-group">
-                    {["apply", "pop", "drop"].map((action) => (
-                      <Button
-                        key={action}
-                        size="small"
-                        status={action === "drop" ? "danger" : undefined}
-                        disabled={busy}
-                        onClick={() => act(action, item.index)}
-                      >
-                        {{ apply: "应用", pop: "弹出", drop: "删除" }[action]}
-                      </Button>
+                    {[["apply", "应用"], ["pop", "弹出"], ["drop", "删除"]].map(([action, label]) => (
+                      <Button key={action} size="small" status={action === "drop" ? "danger" : undefined}
+                        disabled={busy} onClick={() => act(action, item.index)}>{label}</Button>
                     ))}
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="empty">暂无贮藏</div>
-          )
-        }
+                </div>}
+              </article>;
+            })}
+          </div>
+        ) : <div className="empty">{items.length ? "没有匹配的贮藏记录" : "暂无贮藏"}</div>}
       </Resource>
-    </>
+    </section>
   );
+}
+
+function StashFiles({ id, index, version }) {
+  const resource = useResource(
+    signal => get(`/api/local/${id}/stashes/${index}/files`, signal),
+    [id, index, version],
+  );
+  return <Resource resource={resource}>{data => data.files.length
+    ? <ul className="stash-file-list">{data.files.map(file => <li key={file}><code>{file}</code></li>)}</ul>
+    : <p className="muted">此记录没有文件变更。</p>
+  }</Resource>;
 }

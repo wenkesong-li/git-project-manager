@@ -18,5 +18,10 @@ test('TypeScript definitions and references resolve imports semantically, not un
   assert.ok(!refs.items.some(item => item.path === 'other.ts'));
   const highlights = await query(project, { path: 'main.ts', line: 2, column: 15, action: 'documentHighlight' });
   assert.equal(highlights.items.length, 2);
+  const completion=await query(project,{path:'main.ts',content:'import * as math from "./math";\nmath.',line:2,column:6,action:'completion'});
+  assert.ok(completion.items.some(item=>item.label==='add' && item.type==='function'));
+  const hover=await query(project,{path:'main.ts',line:2,column:15,action:'hover'});
+  assert.match(hover.result.contents[0].value,/add\(a: number, b: number\)/);
+  assert.ok(!fs.readFileSync(path.join(root,'main.ts'),'utf8').includes('math.'));
   await assert.rejects(query(project, { path: '../outside.ts', action: 'definition' }), /非法/);
 });

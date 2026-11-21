@@ -13,7 +13,7 @@ export function initialSidebarWidth() {
     return DEFAULT_WIDTH;
   }
 }
-export default function SidebarResize({ sidebarRef, width, onChange }) {
+export default function SidebarResize({ sidebarRef, width, onChange, storageKey = "gpm-sidebar-width", label = "调整左侧宽度", containerRef }) {
   const drag = useRef(null),
     [dragging, setDragging] = useState(false);
   function limits() {
@@ -23,7 +23,7 @@ export default function SidebarResize({ sidebarRef, width, onChange }) {
       : 1;
     return {
       scale,
-      max: Math.max(180, Math.min(520, window.innerWidth / scale - 400)),
+      max: Math.max(180, Math.min(520, containerRef ? containerRef.current.offsetWidth * .45 : window.innerWidth / scale - 400)),
     };
   }
   function update(value, persist = false) {
@@ -32,7 +32,7 @@ export default function SidebarResize({ sidebarRef, width, onChange }) {
     if (drag.current) drag.current.width = next;
     if (persist) {
       try {
-        localStorage.setItem("gpm-sidebar-width", String(next));
+        localStorage.setItem(storageKey, String(next));
       } catch {}
     }
   }
@@ -48,7 +48,7 @@ export default function SidebarResize({ sidebarRef, width, onChange }) {
     <div
       className={`sidebar-resizer ${dragging ? "dragging" : ""}`}
       role="separator"
-      aria-label="调整左侧宽度"
+      aria-label={label}
       aria-orientation="vertical"
       aria-valuemin={180}
       aria-valuemax={520}

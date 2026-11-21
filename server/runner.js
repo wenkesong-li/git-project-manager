@@ -80,9 +80,20 @@ module.exports = function createRunner(dbm, dataDir) {
     const cmd = command(tool, args);
     append(job, `\n> ${path.basename(tool)} ${args.map(arg => arg.includes(' ') ? JSON.stringify(arg) : arg).join(' ')}\n`);
     return new Promise((resolve, reject) => {
-      const child = spawn(cmd.executable, cmd.args, { cwd: job.cwd, env: envFor(environment), windowsVerbatimArguments: !!cmd.windowsVerbatimArguments, windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+      const env = envFor(environment);
+      if (/^(?:java|javac|mvn)(?:\.exe|\.cmd|\.bat)?$/i.test(path.basename(tool))) {
+        // Also applies to JVMs forked by Maven, including Spring Boot.
+        env.JAVA_TOOL_OPTIONS = [
+          env.JAVA_TOOL_OPTIONS,
+          '-Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8',
+        ].filter(Boolean).join(' ');
+      }
+      const child = spawn(cmd.executable, cmd.args, { cwd: job.cwd, env, windowsVerbatimArguments: !!cmd.windowsVerbatimArguments, windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
       job.child = child;
-      child.stdout.on('data', data => append(job, data)); child.stderr.on('data', data => append(job, data));
+      for (const stream of [child.stdout, child.stderr]) {
+        stream.setEncoding('utf8');
+        stream.on('data', text => append(job, text));
+      }
       child.on('error', error => reject(new Error(error.code === 'ENOENT' ? '未找到运行环境，请在右上角设置中配置并检测' : error.message)));
       child.on('close', code => { job.child = null; resolve(code ?? -1); });
     });
@@ -94,7 +105,8 @@ module.exports = function createRunner(dbm, dataDir) {
     let pom='';try {const file=resolveEntry(project.local_path,'pom.xml');if(fs.statSync(file).size<1024*1024)pom=fs.readFileSync(file,'utf8').replace(/<!--[\s\S]*?-->/g,'');}catch{}
     const maven=!!pom, springBoot=/<artifactId>\s*spring-boot-maven-plugin\s*<\/artifactId>/.test(pom),execJava=/<artifactId>\s*exec-maven-plugin\s*<\/artifactId>/.test(pom);
     const runScript=['dev','start','serve'].find(value=>scripts.includes(value));
-    return { scripts, maven, type:maven?'Maven':scripts.length?'Node.js':'普通目录', quickBuild:maven?{action:'maven',goal:'compile'}:scripts.includes('build')?{action:'npm',script:'build'}:null, quickRun:maven?(springBoot?{action:'maven',goal:'spring-boot:run'}:execJava?{action:'maven',goal:'exec:java'}:null):runScript?{action:'npm',script:runScript}:null };
+    const mavenGoals = maven ? ['clean', 'validate', 'compile', 'test', 'package', 'verify', 'install', ...(springBoot ? ['spring-boot:run'] : []), ...(execJava ? ['exec:java'] : [])] : [];
+    return { scripts, maven, mavenGoals, type:maven?'Maven':scripts.length?'Node.js':'普通目录', quickBuild:maven?{action:'maven',goal:'compile'}:scripts.includes('build')?{action:'npm',script:'build'}:null, quickRun:maven?(springBoot?{action:'maven',goal:'spring-boot:run'}:execJava?{action:'maven',goal:'exec:java'}:null):runScript?{action:'npm',script:runScript}:null };
   }
   return {
     prepare,
@@ -147,8 +159,7 @@ module.exports = function createRunner(dbm, dataDir) {
         if (action === 'java-run') stages.push([configured.java, ['-cp', output, [packageName, path.basename(file, '.java')].filter(Boolean).join('.')]]);
         label = action === 'java-run' ? '编译并运行 Java' : '编译 Java';
       } else if (action === 'maven') {
-        const goals=['compile','test','package','clean',...(meta.quickRun?.action==='maven'?[meta.quickRun.goal]:[])];
-        if (!meta.maven || !goals.includes(body.goal)) throw new Error('未找到 Maven 项目或编译目标无效');
+        if (!meta.maven || !meta.mavenGoals.includes(body.goal)) throw new Error('未找到 Maven 项目或编译目标无效');
         stages.push([configured.mvn, ['--batch-mode', body.goal]]); label = `Maven ${body.goal}`;
       } else throw new Error('不支持的运行配置');
       const job = { id: crypto.randomUUID(), projectId: project.id, cwd: fs.realpathSync(project.local_path), label, state: 'running', output: '', startedAt: new Date().toISOString(), exitCode: null };
